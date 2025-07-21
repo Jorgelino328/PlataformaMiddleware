@@ -14,12 +14,10 @@ public class ComplexData {
         this.active = active;
     }
 
-    // Getters
     public String getName() { return name; }
     public int getValue() { return value; }
     public boolean isActive() { return active; }
 
-    // Setters
     public void setName(String name) { this.name = name; }
     public void setValue(int value) { this.value = value; }
     public void setActive(boolean active) { this.active = active; }

@@ -36,3 +36,13 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Build Artifacts ###
+*.log
+dependency-reduced-pom.xml
+
+### IntelliJ IDEA (additional) ###
+.idea/
+*.iws
+*.iml
+*.ipr

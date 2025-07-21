@@ -3,27 +3,15 @@ package imd.ufrn.br.remoting;
 import imd.ufrn.br.identification.LookupService;
 import imd.ufrn.br.identification.ObjectId;
 import imd.ufrn.br.exceptions.InvocationException;
-import imd.ufrn.br.exceptions.ObjectNotFoundException;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 
-/**
- * The Invoker is responsible for executing a method on a target remote object.
- * It uses a {@link LookupService} to find the object instance based on its
- * {@link ObjectId} and then uses Java Reflection to invoke the specified method.
- */
 public class Invoker {
 
     private final LookupService lookupService;
 
-    /**
-     * Constructs a new Invoker with the specified LookupService.
-     *
-     * @param lookupService The {@link LookupService} to be used for finding remote objects.
-     *                      Cannot be null.
-     */
     public Invoker(LookupService lookupService) {
         if (lookupService == null) {
             throw new IllegalArgumentException("LookupService cannot be null.");
@@ -31,21 +19,6 @@ public class Invoker {
         this.lookupService = lookupService;
     }
 
-    /**
-     * Invokes a method on a remote object.
-     *
-     * @param objectId The {@link ObjectId} of the target remote object.
-     * @param methodName The name of the method to invoke.
-     * @param args An array of arguments for the method. The types of these arguments
-     *             must match the parameter types of the target method.
-     * @return The result of the method invocation.
-     * @throws ObjectNotFoundException if the object with the given ObjectId cannot be found.
-     * @throws NoSuchMethodException if a method with the specified name and parameter types
-     *                               cannot be found on the target object.
-     * @throws InvocationException if the invoked method throws an exception, or if there's
-     *                             an issue with accessing the method.
-     * @throws Throwable for other reflection-related errors or unexpected issues.
-     */
     public Object invoke(ObjectId objectId, String methodName, Object[] args) throws Throwable {
         if (objectId == null) {
             throw new IllegalArgumentException("ObjectId cannot be null for invocation.");
@@ -101,11 +74,6 @@ public class Invoker {
         }
     }
 
-    /**
-     * Finds a compatible method in the given class.
-     * This is more flexible than Class.getMethod() as it considers assignability
-     * and handles primitive/wrapper type conversions for parameters.
-     */
     private Method findCompatibleMethod(Class<?> targetClass, String methodName, Class<?>[] argTypes, Object[] args) {
         Method[] methods = targetClass.getMethods();
         for (Method method : methods) {
@@ -139,9 +107,6 @@ public class Invoker {
         return null;
     }
 
-    /**
-     * Checks if a wrapper class corresponds to a given primitive type.
-     */
     private boolean isWrapperForPrimitive(Class<?> wrapper, Class<?> primitive) {
         if (!primitive.isPrimitive()) return false;
         if (primitive == int.class) return wrapper == Integer.class;
