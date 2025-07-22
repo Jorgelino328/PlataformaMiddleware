@@ -62,28 +62,6 @@ public class CalculatorServiceImpl {
 - Detecta falhas e permite recuperação automática
 - Integrado com o servidor UDP para comunicação de heartbeat
 
-## Estrutura do Projeto
-
-```
-├── plataforma-middleware/          # Módulo do middleware
-│   ├── src/main/java/imd/ufrn/br/
-│   │   ├── annotations/           # Anotações do sistema
-│   │   ├── broker/               # Padrão Broker
-│   │   ├── exceptions/           # Hierarquia de exceções
-│   │   ├── identification/       # Padrões de identificação
-│   │   ├── remoting/            # Padrões de remoting
-│   │   └── monitoring/          # Monitoramento e heartbeat
-├── aplicacao/                    # Aplicação exemplo
-│   └── src/main/java/imd/ufrn/br/app/
-│       ├── CalculatorServiceImpl.java    # Serviço exemplo
-│       ├── ComplexData.java             # Classe de dados
-│       └── Main.java                    # Aplicação principal
-└── jmeter-tests/                 # Planos de teste JMeter
-    ├── basic-load-test.jmx
-    ├── middleware-load-test.jmx
-    ├── capacity-test.jmx
-    └── comprehensive-test.jmx
-```
 
 ## Como Executar
 
@@ -94,42 +72,32 @@ public class CalculatorServiceImpl {
 
 ### Construção e Execução
 
-1. **Construir o projeto:**
+1. **Construir o middleware e gerar o JAR:**
 ```bash
-mvn clean package
+cd plataforma-middleware
+mvn clean package -DskipTests
 ```
 
-2. **Executar o servidor:**
+2. **Copiar o JAR do middleware para a aplicação:**
 ```bash
-cd aplicacao
+cp target/plataforma-middleware-1.0-SNAPSHOT.jar ../aplicacao/lib/
+```
+
+3. **Construir a aplicação (que importa o middleware como JAR):**
+```bash
+cd ../aplicacao
+mvn clean package -DskipTests
+```
+
+4. **Executar o sistema:**
+```bash
 java -jar target/aplicacao-1.0-SNAPSHOT.jar
 ```
 
-O servidor inicia em:
-- HTTP: porta 8080 (para JMeter)
-- UDP: porta 9090 (para tolerância a falhas)
-
-### Testando a Aplicação
-
-#### Teste HTTP (via curl)
-```bash
-# Listar serviços
-curl "http://localhost:8080/lookup?service=CalculatorService"
-
-# Invocar método add
-curl -X POST "http://localhost:8080/invoke" \
-  -H "Content-Type: application/json" \
-  -d '{"objectId":"CalculatorService","methodName":"add","args":[5,3]}'
-
-# Invocar método processComplexData
-curl -X POST "http://localhost:8080/invoke" \
-  -H "Content-Type: application/json" \
-  -d '{"objectId":"CalculatorService","methodName":"processComplexData","args":[{"name":"Test","value":42,"active":true}]}'
-```
-
-#### Testes com JMeter
-
-Os testes oficiais são executados através do JMeter. Certifique-se de que a aplicação esteja executando antes de executar os testes:
+O sistema inicia com:
+- HTTP Gateway: porta 8082 (para JMeter)
+- TCP Server: porta 8085 (comunicação interna)
+- UDP Server: porta 8086 (monitoramento)
 
 ## Testes JMeter
 
@@ -154,60 +122,3 @@ Foram criados 4 planos de teste JMeter:
 - Teste abrangente
 - Múltiplos métodos (add, multiply, processComplexData)
 - Cenário realista de uso
-
-### Executando Testes JMeter
-
-```bash
-# Teste básico
-jmeter -n -t jmeter-tests/basic-load-test.jmx -l results-basic.jtl
-
-# Teste de capacidade
-jmeter -n -t jmeter-tests/capacity-test.jmx -l results-capacity.jtl
-
-# Teste abrangente
-jmeter -n -t jmeter-tests/comprehensive-test.jmx -l results-comprehensive.jtl
-```
-
-## Funcionalidades Implementadas
-
-### ✅ Requisitos Atendidos
-
-1. **Middleware Distribuído**: ✅ Implementado com padrões do livro
-2. **Invocação Remota via HTTP**: ✅ Para testes JMeter
-3. **Invocação Remota via UDP**: ✅ Para tolerância a falhas
-4. **Remoção de Comentários**: ✅ Todos os comentários removidos
-5. **Padrões Requeridos**: ✅ Todos os 9 padrões implementados
-6. **Modelo de Componentes**: ✅ Baseado em anotações
-7. **Testes JMeter**: ✅ 4 planos de teste criados
-8. **Tolerância a Falhas**: ✅ Heartbeat e monitoramento
-9. **Robustez**: ✅ Tratamento de exceções e recuperação
-
-### Detalhes de Implementação
-
-- **JSON Marshalling**: Utiliza Jackson para serialização eficiente
-- **Reflexão Java**: Para invocação dinâmica de métodos
-- **HTTP Server Nativo**: Usa `com.sun.net.httpserver`
-- **UDP Assíncrono**: Para comunicação de baixa latência
-- **Thread Safety**: Uso de `ConcurrentHashMap` para thread safety
-- **Error Handling**: Hierarquia robusta de exceções
-
-## Logs e Monitoramento
-
-O sistema produz logs detalhados:
-- Registro de serviços
-- Invocações remotas (HTTP/UDP)
-- Status de heartbeat
-- Detecção de falhas
-- Métricas de performance
-
-## Considerações de Performance
-
-- Suporte a múltiplos protocolos (HTTP/UDP)
-- Pool de threads para processamento concorrente
-- Serialização JSON otimizada
-- Cache de metadados de reflexão
-- Monitoramento não-bloqueante
-
-## Conclusão
-
-Esta implementação demonstra uma plataforma de middleware completa e robusta, seguindo os padrões estabelecidos na literatura de sistemas distribuídos. O sistema suporta tanto casos de uso de alta performance (UDP) quanto compatibilidade com ferramentas de teste padrão (HTTP/JMeter), fornecendo uma base sólida para aplicações distribuídas.
