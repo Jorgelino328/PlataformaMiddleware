@@ -2,6 +2,8 @@ package imd.ufrn.br.identification;
 
 import imd.ufrn.br.annotations.RemoteObject;
 import imd.ufrn.br.exceptions.ObjectNotFoundException;
+import imd.ufrn.br.extensions.ExtensionManager;
+import imd.ufrn.br.lifecycle.LifecycleManager;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,6 +13,8 @@ public class LookupService {
     private static final LookupService INSTANCE = new LookupService();
 
     private final Map<ObjectId, Object> remoteObjectsRegistry;
+    private ExtensionManager extensionManager;
+    private LifecycleManager lifecycleManager;
 
     private LookupService() {
         this.remoteObjectsRegistry = new ConcurrentHashMap<>();
@@ -36,6 +40,12 @@ public class LookupService {
         remoteObjectsRegistry.put(id, objectInstance);
         System.out.println("LookupService: Registered object '" + id.getId() +
                 "' -> " + objectInstance.getClass().getName());
+        if (extensionManager != null) {
+            extensionManager.notifyRegister(id.getId());
+        }
+        if (lifecycleManager != null) {
+            lifecycleManager.register(id);
+        }
     }
 
     public Object findObject(ObjectId id) throws ObjectNotFoundException {
@@ -62,10 +72,21 @@ public class LookupService {
         Object removedObject = remoteObjectsRegistry.remove(id);
         if (removedObject != null) {
             System.out.println("LookupService: Unregistered object '" + id.getId() + "'");
+            if (extensionManager != null) {
+                extensionManager.notifyUnregister(id.getId());
+            }
         } else {
             System.out.println("LookupService: No object found with id '" + id.getId() + "' to unregister.");
         }
         return removedObject;
+    }
+
+    public void setExtensionManager(ExtensionManager extensionManager) {
+        this.extensionManager = extensionManager;
+    }
+
+    public void setLifecycleManager(LifecycleManager lifecycleManager) {
+        this.lifecycleManager = lifecycleManager;
     }
 
     public void clearRegistry() {
