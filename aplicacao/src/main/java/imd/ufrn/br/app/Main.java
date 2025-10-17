@@ -10,6 +10,10 @@ import imd.ufrn.br.remoting.UDPServerRequestHandler;
 import imd.ufrn.br.remoting.TCPServerRequestHandler;
 import imd.ufrn.br.gateway.HTTPGateway;
 import imd.ufrn.br.monitoring.HeartbeatMonitor;
+import imd.ufrn.br.extensions.ExtensionManager;
+import imd.ufrn.br.extensions.Extension;
+import imd.ufrn.br.lifecycle.LifecycleManager;
+import imd.ufrn.br.remoting.AsyncInvoker;
 
 import java.io.IOException;
 
@@ -19,8 +23,19 @@ public class Main {
         System.out.println("Starting distributed middleware application with UDP...");
 
         LookupService lookupService = LookupService.getInstance();
-        Invoker invoker = new Invoker(lookupService);
-        Broker broker = new Broker(invoker);
+    Invoker invoker = new Invoker(lookupService);
+
+    // Extension and lifecycle managers
+    ExtensionManager extensionManager = new ExtensionManager();
+    LifecycleManager lifecycleManager = new LifecycleManager(lookupService);
+    lookupService.setExtensionManager(extensionManager);
+    lookupService.setLifecycleManager(lifecycleManager);
+
+    // Async invoker
+    AsyncInvoker asyncInvoker = new AsyncInvoker(lookupService, 4);
+
+    // wire broker with async/extension capabilities
+    Broker broker = new Broker(invoker, asyncInvoker, extensionManager);
         JsonMarshaller marshaller = new JsonMarshaller();
 
         CalculatorServiceImpl calculator = new CalculatorServiceImpl();
@@ -42,6 +57,17 @@ public class Main {
             System.err.println("Error registering object " + serviceName + ": " + e.getMessage());
             return;
         }
+
+        // register a tiny logging extension to demonstrate Extensions pattern
+        extensionManager.registerExtension(new Extension() {
+            @Override
+            public void onInvoke(String objectId, String methodName) {
+                System.out.println("[Extension] Invoking " + objectId + "#" + methodName);
+            }
+        });
+
+        // start lifecycle-managed components
+        lifecycleManager.startAll();
 
         UDPServerRequestHandler udpHandler =
                 new UDPServerRequestHandler(broker, marshaller, lookupService);
@@ -81,6 +107,8 @@ public class Main {
                 heartbeatMonitor.stop();
                 tcpHandler.stop();
                 udpHandler.stop();
+                asyncInvoker.shutdown();
+                lifecycleManager.stopAll();
             }));
 
             Thread.currentThread().join();
