@@ -34,9 +34,9 @@
         </elementProp>
       </ThreadGroup>
       <hashTree>
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Calculator Add Operation">
-          <stringProp name="HTTPSampler.domain">${server_host}</stringProp>
-          <stringProp name="HTTPSampler.port">${server_port}</stringProp>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="Calculator Add Operation" enabled="true">
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8082</stringProp>
           <stringProp name="HTTPSampler.protocol">http</stringProp>
           <stringProp name="HTTPSampler.path">/invoke/CalculatorService/add</stringProp>
           <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
