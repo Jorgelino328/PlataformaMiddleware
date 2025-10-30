@@ -8,8 +8,7 @@ import imd.ufrn.br.exceptions.ObjectNotFoundException;
 import imd.ufrn.br.exceptions.RemotingException;
 
 import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.net.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -19,17 +18,19 @@ public class TCPServerRequestHandler {
     private final JsonMarshaller marshaller;
     private final LookupService lookupService;
     private ServerSocket serverSocket;
+    private DatagramSocket heartbeatSocket;
     private final ExecutorService threadPool;
     private boolean isRunning = false;
 
-    public TCPServerRequestHandler(Broker broker, JsonMarshaller marshaller, LookupService lookupService) {
+    public TCPServerRequestHandler(Broker broker, JsonMarshaller marshaller, LookupService lookupService, int threadPoolSize) {
         if (broker == null || marshaller == null || lookupService == null) {
             throw new IllegalArgumentException("Broker, Marshaller, and LookupService cannot be null.");
         }
         this.broker = broker;
         this.marshaller = marshaller;
         this.lookupService = lookupService;
-        this.threadPool = Executors.newCachedThreadPool();
+        this.threadPool = Executors.newFixedThreadPool(Math.max(1, threadPoolSize));
+        System.out.println("TCPServerRequestHandler: Created with " + threadPoolSize + " threads");
     }
 
     public void start(int port) throws IOException {
@@ -38,8 +39,10 @@ public class TCPServerRequestHandler {
         }
         
         serverSocket = new ServerSocket(port);
+        heartbeatSocket = new DatagramSocket(port + 1000); // Use TCP port + 1000 for heartbeat UDP
         isRunning = true;
         
+        // Start TCP server thread
         Thread serverThread = new Thread(() -> {
             while (isRunning) {
                 try {
@@ -52,11 +55,37 @@ public class TCPServerRequestHandler {
                 }
             }
         });
-        
-        serverThread.setDaemon(true);
         serverThread.start();
         
+        // Start UDP heartbeat listener thread
+        Thread heartbeatThread = new Thread(() -> {
+            while (isRunning) {
+                try {
+                    byte[] buffer = new byte[1024];
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    heartbeatSocket.receive(packet);
+                    
+                    String message = new String(packet.getData(), 0, packet.getLength());
+                    if ("HEARTBEAT".equals(message)) {
+                        // Send heartbeat response
+                        String response = "HEARTBEAT_ACK";
+                        byte[] responseData = response.getBytes();
+                        DatagramPacket responsePacket = new DatagramPacket(
+                            responseData, responseData.length, packet.getAddress(), packet.getPort()
+                        );
+                        heartbeatSocket.send(responsePacket);
+                    }
+                } catch (IOException e) {
+                    if (isRunning) {
+                        System.err.println("TCPServerRequestHandler: Error handling heartbeat - " + e.getMessage());
+                    }
+                }
+            }
+        });
+        heartbeatThread.start();
+        
         System.out.println("TCPServerRequestHandler: TCP server started on port " + port);
+        System.out.println("TCPServerRequestHandler: Heartbeat listener started on UDP port " + (port + 1000));
     }
 
     public void stop() {
@@ -71,10 +100,27 @@ public class TCPServerRequestHandler {
                 serverSocket.close();
             }
         } catch (IOException e) {
-            System.err.println("TCPServerRequestHandler: Error closing server socket - " + e.getMessage());
+            System.err.println("TCPServerRequestHandler: Error closing TCP server socket - " + e.getMessage());
+        }
+        
+        try {
+            if (heartbeatSocket != null && !heartbeatSocket.isClosed()) {
+                heartbeatSocket.close();
+            }
+        } catch (Exception e) {
+            System.err.println("TCPServerRequestHandler: Error closing heartbeat socket - " + e.getMessage());
         }
         
         threadPool.shutdown();
+        try {
+            if (!threadPool.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                threadPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            threadPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        
         System.out.println("TCPServerRequestHandler: TCP server stopped");
     }
 
