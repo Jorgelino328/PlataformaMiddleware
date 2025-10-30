@@ -17,6 +17,10 @@ public class AbsoluteObjectReference {
         this.objectId = objectId;
         this.networkAddress = networkAddress;
     }
+    
+    public AbsoluteObjectReference(ObjectId objectId, String host, int port) {
+        this(objectId, host + ":" + port);
+    }
 
     public ObjectId getObjectId() {
         return objectId;
@@ -24,6 +28,23 @@ public class AbsoluteObjectReference {
 
     public String getNetworkAddress() {
         return networkAddress;
+    }
+    
+    public String getHost() {
+        String[] parts = networkAddress.split(":");
+        return parts.length > 0 ? parts[0] : networkAddress;
+    }
+    
+    public int getPort() {
+        String[] parts = networkAddress.split(":");
+        if (parts.length >= 2) {
+            try {
+                return Integer.parseInt(parts[1]);
+            } catch (NumberFormatException e) {
+                return -1;
+            }
+        }
+        return -1;
     }
 
     @Override

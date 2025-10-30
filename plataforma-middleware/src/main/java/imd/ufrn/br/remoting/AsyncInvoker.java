@@ -8,7 +8,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Provides asynchronous invocation semantics backed by a fixed thread pool.
+ * Provides asynchronous invocation semantics backed by a configurable thread pool.
  */
 public class AsyncInvoker {
 
@@ -18,6 +18,7 @@ public class AsyncInvoker {
     public AsyncInvoker(LookupService lookupService, int poolSize) {
         this.invoker = new Invoker(lookupService);
         this.executor = Executors.newFixedThreadPool(Math.max(1, poolSize));
+        System.out.println("AsyncInvoker: Created with " + poolSize + " threads");
     }
 
     public CompletableFuture<Object> invokeAsync(ObjectId objectId, String methodName, Object[] args) {

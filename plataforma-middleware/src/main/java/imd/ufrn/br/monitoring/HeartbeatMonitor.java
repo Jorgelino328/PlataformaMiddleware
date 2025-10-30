@@ -17,11 +17,17 @@ public class HeartbeatMonitor {
     private final Map<String, Integer> missedHeartbeats = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     
-    private static final int HEARTBEAT_INTERVAL_MS = 5000;
-    private static final int HEARTBEAT_TIMEOUT_MS = 3000;
-    private static final int MAX_MISSED_HEARTBEATS = 3;
+    private final long heartbeatIntervalMs;
+    private final long heartbeatTimeoutMs;
+    private final int maxMissedHeartbeats;
     
     private boolean running = false;
+
+    public HeartbeatMonitor(long heartbeatIntervalMs, long heartbeatTimeoutMs, int maxMissedHeartbeats) {
+        this.heartbeatIntervalMs = heartbeatIntervalMs;
+        this.heartbeatTimeoutMs = heartbeatTimeoutMs;
+        this.maxMissedHeartbeats = maxMissedHeartbeats;
+    }
 
     public static class ComponentInfo {
         private final String name;
@@ -60,8 +66,8 @@ public class HeartbeatMonitor {
         
         scheduler.scheduleAtFixedRate(
             this::checkAllComponents, 
-            HEARTBEAT_INTERVAL_MS, 
-            HEARTBEAT_INTERVAL_MS, 
+            heartbeatIntervalMs, 
+            heartbeatIntervalMs, 
             TimeUnit.MILLISECONDS
         );
     }
@@ -97,14 +103,14 @@ public class HeartbeatMonitor {
                 int missed = missedHeartbeats.getOrDefault(component.getName(), 0) + 1;
                 missedHeartbeats.put(component.getName(), missed);
                 
-                if (missed >= MAX_MISSED_HEARTBEATS) {
+                if (missed >= maxMissedHeartbeats) {
                     System.err.println("HeartbeatMonitor: Component " + component.getName() + 
                                      " is dead after " + missed + " missed heartbeats");
                     component.setHealthy(false);
                     missedHeartbeats.remove(component.getName());
                 } else {
                     System.out.println("HeartbeatMonitor: Component " + component.getName() + 
-                                     " missed heartbeat (" + missed + "/" + MAX_MISSED_HEARTBEATS + ")");
+                                     " missed heartbeat (" + missed + "/" + maxMissedHeartbeats + ")");
                 }
             } else {
                 missedHeartbeats.put(component.getName(), 0);
@@ -118,7 +124,7 @@ public class HeartbeatMonitor {
 
     private boolean checkComponentHealth(ComponentInfo component) {
         try (DatagramSocket socket = new DatagramSocket()) {
-            socket.setSoTimeout(HEARTBEAT_TIMEOUT_MS);
+            socket.setSoTimeout((int) heartbeatTimeoutMs);
             
             String message = "HEARTBEAT";
             byte[] sendData = message.getBytes();

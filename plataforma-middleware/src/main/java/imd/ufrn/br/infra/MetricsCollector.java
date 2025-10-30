@@ -9,9 +9,15 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class MetricsCollector {
 
-    private static class Stats {
+    public static class Stats {
         final LongAdder count = new LongAdder();
         final LongAdder totalLatencyMs = new LongAdder();
+        
+        public long getCount() { return count.longValue(); }
+        public double getAverageLatency() {
+            long c = count.longValue();
+            return c > 0 ? (double) totalLatencyMs.longValue() / c : 0.0;
+        }
     }
 
     private final Map<String, Stats> stats = new ConcurrentHashMap<>();
@@ -32,5 +38,9 @@ public class MetricsCollector {
         Stats s = stats.get(objectId + "#" + methodName);
         if (s == null || s.count.longValue() == 0) return 0.0;
         return (double) s.totalLatencyMs.longValue() / s.count.longValue();
+    }
+    
+    public Map<String, Stats> getAllStats() {
+        return new java.util.HashMap<>(stats);
     }
 }

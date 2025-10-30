@@ -12,9 +12,6 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
-import java.lang.reflect.Method;
-import java.util.List;
-import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -28,16 +25,16 @@ public class UDPServerRequestHandler {
     private DatagramSocket socket;
     private boolean running = false;
     private static final int MAX_PACKET_SIZE = 65507;
-    private static final String SEPARATOR = "|";
 
-    public UDPServerRequestHandler(Broker broker, JsonMarshaller marshaller, LookupService lookupService) {
+    public UDPServerRequestHandler(Broker broker, JsonMarshaller marshaller, LookupService lookupService, int threadPoolSize) {
         if (broker == null || marshaller == null || lookupService == null) {
             throw new IllegalArgumentException("Broker, Marshaller, and LookupService cannot be null.");
         }
         this.broker = broker;
         this.marshaller = marshaller;
         this.lookupService = lookupService;
-        this.threadPool = Executors.newFixedThreadPool(20);
+        this.threadPool = Executors.newFixedThreadPool(Math.max(1, threadPoolSize));
+        System.out.println("UDPServerRequestHandler: Created with " + threadPoolSize + " threads");
     }
 
     public void start(int port) throws SocketException {
@@ -116,13 +113,8 @@ public class UDPServerRequestHandler {
             ObjectId objectId = new ObjectId(objectName);
             Object targetObject = lookupService.findObject(objectId);
 
-            Method actualMethod = findActualMethod(targetObject.getClass(), methodName, jsonParams);
-            if (actualMethod == null) {
-                throw new NoSuchMethodException("No suitable method '" + methodName + "' found in " +
-                        targetObject.getClass().getName() + " that matches provided parameters.");
-            }
-
-            Class<?>[] paramTypes = actualMethod.getParameterTypes();
+            // Use the same robust method resolution as Invoker
+            Class<?>[] paramTypes = findMethodParameterTypes(targetObject.getClass(), methodName, jsonParams);
             Object[] params = marshaller.unmarshalParameters(jsonParams, paramTypes);
 
             Object result = broker.processRequest(objectId, methodName, params);
@@ -153,44 +145,26 @@ public class UDPServerRequestHandler {
         }
     }
 
-    private Method findActualMethod(Class<?> targetClass, String methodName, String jsonParams) throws MarshallingException {
-        List<Method> candidates = new ArrayList<>();
-        for (Method method : targetClass.getMethods()) {
-            if (method.getName().equals(methodName)) {
-                candidates.add(method);
-            }
-        }
-
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
-        if (candidates.size() == 1) {
-            return candidates.get(0);
-        }
-
-        int paramCount = -1;
-        if (jsonParams != null && !jsonParams.trim().isEmpty() && !"[]".equals(jsonParams.trim())) {
-            try {
-                @SuppressWarnings("unchecked")
-                List<Object> tempList = marshaller.unmarshal(jsonParams, List.class);
-                if (tempList != null) paramCount = tempList.size();
-            } catch (MarshallingException e) {
-                System.err.println("UDPServerRequestHandler: Preliminary param count check failed: " + e.getMessage());
-            }
-        } else {
-            paramCount = 0;
-        }
-
-        if (paramCount != -1) {
-            for (Method candidate : candidates) {
-                if (candidate.getParameterCount() == paramCount) {
-                    return candidate;
+    private Class<?>[] findMethodParameterTypes(Class<?> targetClass, String methodName, String paramsJson) throws MarshallingException {
+        try {
+            @SuppressWarnings("unchecked")
+            java.util.List<Object> paramsList = marshaller.unmarshal(paramsJson, java.util.List.class);
+            int paramCount = paramsList != null ? paramsList.size() : 0;
+            
+            for (java.lang.reflect.Method method : targetClass.getMethods()) {
+                if (method.getName().equals(methodName) && method.getParameterCount() == paramCount) {
+                    return method.getParameterTypes();
                 }
             }
+            
+            throw new MarshallingException("Method " + methodName + " with " + paramCount + " parameters not found in class " + targetClass.getName(), null);
+            
+        } catch (Exception e) {
+            if (e instanceof MarshallingException) {
+                throw e;
+            }
+            throw new MarshallingException("Error finding method parameter types: " + e.getMessage(), e);
         }
-
-        return candidates.get(0);
     }
 
     private void sendSuccessResponse(String response, InetAddress clientAddress, int clientPort) {

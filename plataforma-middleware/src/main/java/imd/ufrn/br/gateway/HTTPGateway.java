@@ -3,6 +3,9 @@ package imd.ufrn.br.gateway;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import imd.ufrn.br.discovery.ServiceRegistry;
+import imd.ufrn.br.identification.AbsoluteObjectReference;
+import imd.ufrn.br.identification.ObjectId;
 
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -12,12 +15,14 @@ import java.util.concurrent.Executors;
 
 public class HTTPGateway implements HttpHandler {
     
-    private final String tcpServerHost;
-    private final int tcpServerPort;
+    private final ServiceRegistry serviceRegistry;
+    private final String fallbackHost;
+    private final int fallbackPort;
 
-    public HTTPGateway(String tcpServerHost, int tcpServerPort) {
-        this.tcpServerHost = tcpServerHost;
-        this.tcpServerPort = tcpServerPort;
+    public HTTPGateway(ServiceRegistry serviceRegistry, String fallbackHost, int fallbackPort) {
+        this.serviceRegistry = serviceRegistry;
+        this.fallbackHost = fallbackHost;
+        this.fallbackPort = fallbackPort;
     }
 
     public void start(int httpPort) throws IOException {
@@ -25,7 +30,7 @@ public class HTTPGateway implements HttpHandler {
         server.createContext("/invoke", this);
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
-        System.out.println("HTTPGateway: Started on port " + httpPort + ", forwarding to TCP server at " + tcpServerHost + ":" + tcpServerPort);
+        System.out.println("HTTPGateway: Started on port " + httpPort + " with service discovery");
     }
 
     @Override
@@ -55,10 +60,10 @@ public class HTTPGateway implements HttpHandler {
                 requestBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             }
 
-            System.out.println("HTTPGateway: Forwarding request to TCP server: " + objectName + "|" + methodName + "|" + requestBody);
+            System.out.println("HTTPGateway: Forwarding request to discovered service: " + objectName + "|" + methodName + "|" + requestBody);
 
             String tcpRequest = objectName + "|" + methodName + "|" + requestBody;
-            String tcpResponse = forwardToTCPServer(tcpRequest);
+            String tcpResponse = forwardToTCPServer(objectName, tcpRequest);
 
             if (tcpResponse != null && tcpResponse.startsWith("ERROR:")) {
                 sendErrorResponse(exchange, 500, "Internal Server Error", tcpResponse);
@@ -75,9 +80,24 @@ public class HTTPGateway implements HttpHandler {
         }
     }
 
-    private String forwardToTCPServer(String request) {
+    private String forwardToTCPServer(String objectName, String request) {
+        // Try service discovery first
+        ObjectId objectId = new ObjectId(objectName);
+        AbsoluteObjectReference reference = serviceRegistry.discover(objectId);
+        
+        String targetHost = fallbackHost;
+        int targetPort = fallbackPort;
+        
+        if (reference != null) {
+            targetHost = reference.getHost();
+            targetPort = reference.getPort();
+            System.out.println("HTTPGateway: Using discovered service at " + targetHost + ":" + targetPort);
+        } else {
+            System.out.println("HTTPGateway: Service not found in registry, using fallback " + targetHost + ":" + targetPort);
+        }
+        
         try (
-            Socket socket = new Socket(tcpServerHost, tcpServerPort);
+            Socket socket = new Socket(targetHost, targetPort);
             PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))
         ) {

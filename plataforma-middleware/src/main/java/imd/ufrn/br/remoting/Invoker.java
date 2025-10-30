@@ -35,8 +35,8 @@ public class Invoker {
         Class<?>[] paramTypes = new Class<?>[args.length];
         for (int i = 0; i < args.length; i++) {
             if (args[i] == null) {
-                throw new IllegalArgumentException("Null arguments are not robustly supported for method signature matching in this simplified Invoker. " +
-                        "Parameter at index " + i + " is null.");
+                // For null parameters, we'll try to infer the type during method matching
+                paramTypes[i] = null;
             } else {
                 paramTypes[i] = args[i].getClass();
             }
@@ -76,35 +76,53 @@ public class Invoker {
 
     private Method findCompatibleMethod(Class<?> targetClass, String methodName, Class<?>[] argTypes, Object[] args) {
         Method[] methods = targetClass.getMethods();
+        Method bestMatch = null;
+        int bestScore = -1;
+        
         for (Method method : methods) {
             if (method.getName().equals(methodName) && method.getParameterCount() == argTypes.length) {
-                Class<?>[] Kpes = method.getParameterTypes();
-                boolean compatible = true;
-                for (int i = 0; i < Kpes.length; i++) {
-                    Class<?> expectedType = Kpes[i];
-                    Class<?> actualType = argTypes[i];
-
-                    if (args[i] == null) {
-                        if (expectedType.isPrimitive()) {
-                            compatible = false;
-                            break;
-                        }
-                    } else if (expectedType.isPrimitive()) {
-                        if (!isWrapperForPrimitive(actualType, expectedType)) {
-                            compatible = false;
-                            break;
-                        }
-                    } else if (!expectedType.isAssignableFrom(actualType)) {
-                        compatible = false;
-                        break;
-                    }
-                }
-                if (compatible) {
-                    return method;
+                Class<?>[] paramTypes = method.getParameterTypes();
+                int score = calculateCompatibilityScore(paramTypes, argTypes, args);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = method;
                 }
             }
         }
-        return null;
+        return bestMatch;
+    }
+    
+    private int calculateCompatibilityScore(Class<?>[] paramTypes, Class<?>[] argTypes, Object[] args) {
+        int score = 0;
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> expectedType = paramTypes[i];
+            Class<?> actualType = argTypes[i];
+            Object actualArg = args[i];
+            
+            if (actualArg == null) {
+                // Null can be assigned to any non-primitive type
+                if (!expectedType.isPrimitive()) {
+                    score += 1; // Lower score for null compatibility
+                } else {
+                    return -1; // Null can't be assigned to primitives
+                }
+            } else if (expectedType.isPrimitive()) {
+                if (isWrapperForPrimitive(actualType, expectedType)) {
+                    score += 10; // Exact wrapper match
+                } else {
+                    return -1; // Not compatible
+                }
+            } else if (expectedType.isAssignableFrom(actualType)) {
+                if (expectedType.equals(actualType)) {
+                    score += 10; // Exact match
+                } else {
+                    score += 5; // Subclass/interface match
+                }
+            } else {
+                return -1; // Not compatible
+            }
+        }
+        return score;
     }
 
     private boolean isWrapperForPrimitive(Class<?> wrapper, Class<?> primitive) {
