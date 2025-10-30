@@ -93,6 +93,11 @@ mvn clean package -DskipTests
 java -jar target/aplicacao-1.0-SNAPSHOT.jar
 ```
 
+**Configuração opcional via linha de comando:**
+```bash
+java -jar target/aplicacao-1.0-SNAPSHOT.jar --server.http.port=8090 --server.tcp.port=8091 --server.udp.port=8092
+```
+
 O sistema inicia com:
 - HTTP Gateway: porta 8082 (para JMeter)
 - TCP Server: porta 8085 (comunicação interna)
