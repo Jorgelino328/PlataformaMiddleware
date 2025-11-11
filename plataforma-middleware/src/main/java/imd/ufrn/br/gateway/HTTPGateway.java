@@ -62,19 +62,15 @@ public class HTTPGateway implements HttpHandler {
                 return;
             }
 
-            // The service is local, invoke directly via the Broker
             String requestBody;
             try (InputStream is = exchange.getRequestBody()) {
                 requestBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             }
 
-            // Deserialize parameters
             Object[] params = marshaller.unmarshalParameters(requestBody, route.parameterTypes());
 
-            // Create a request for the broker
             Request brokerRequest = new Request(route.instance(), route.method(), params);
 
-            // Invoke and get the response
             Response brokerResponse = broker.invoke(brokerRequest);
 
             if (brokerResponse.hasError()) {

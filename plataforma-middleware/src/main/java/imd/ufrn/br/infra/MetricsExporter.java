@@ -51,7 +51,14 @@ public class MetricsExporter implements HttpHandler {
         
         // Note: In a real implementation, we'd store method keys and iterate through them
         // For this demo, we'll show the concept with some sample methods
-        String[] sampleMethods = {"CalculatorService#add", "CalculatorService#echo", "CalculatorService#getStatus"};
+        String[] sampleMethods = {
+        "CalculatorServiceImpl#add",
+        "CalculatorServiceImpl#echo",
+        "CalculatorServiceImpl#status", // O método agora é "status"
+        "CalculatorServiceImpl#process", // O método agora é "process"
+        "CalculatorServiceImpl#greet",   // O método agora é "greet"
+        "CalculatorServiceImpl#sum"      // O método agora é "sum"
+    };
         
         for (String methodKey : sampleMethods) {
             String[] parts = methodKey.split("#");

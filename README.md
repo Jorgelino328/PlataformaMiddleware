@@ -42,3 +42,16 @@ java -jar target/aplicacao-1.0-SNAPSHOT.jar --server.http.port=8090
 
 O sistema inicia com o HTTP Gateway na porta configurada (padrão: 8080).
 
+### Visualizando Métricas de Performance
+
+Para habilitar a exportação de métricas, execute a aplicação com o seguinte argumento:
+
+```bash
+java -jar target/aplicacao-1.0-SNAPSHOT.jar --metrics.export.enabled=true
+```
+
+Após iniciar a aplicação e gerar algum tráfego (por exemplo, usando os testes JMeter), as métricas de performance estarão disponíveis no endpoint `/metrics` na porta `9090`.
+
+Você pode visualizá-las acessando: `http://localhost:9090/metrics`
+
+

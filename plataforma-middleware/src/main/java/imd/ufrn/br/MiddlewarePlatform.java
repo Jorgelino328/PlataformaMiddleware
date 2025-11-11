@@ -143,20 +143,6 @@ public class MiddlewarePlatform {
         }
 
         routeRegistry.register(serviceInstance);
-
-        String serviceName = serviceClass.getSimpleName();
-        ObjectId objectId = new ObjectId(serviceName);
-
-        try {
-            lookupService.registerObject(objectId, serviceInstance);
-
-            // Service registration for TCP is now legacy, but we can keep it for potential compatibility.
-            serviceRegistry.register(objectId, config.getServerHost(), config.getTcpPort());
-            System.out.println("Serviço '" + serviceName + "' registrado para chamadas TCP (legacy).");
-
-        } catch (Exception e) {
-            System.err.println("Erro ao registrar objeto remoto para TCP: " + e.getMessage());
-        }
     }
 
     public void registerExtension(Extension extension) {
