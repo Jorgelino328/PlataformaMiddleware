@@ -1,6 +1,6 @@
 package imd.ufrn.br;
 
-import imd.ufrn.br.annotations.RemoteObject;
+import imd.ufrn.br.annotations.RequestMapping;
 import imd.ufrn.br.broker.Broker;
 import imd.ufrn.br.config.MiddlewareConfig;
 import imd.ufrn.br.discovery.ServiceRegistry;
@@ -13,15 +13,12 @@ import imd.ufrn.br.infra.MetricsCollector;
 import imd.ufrn.br.infra.MetricsExporter;
 import imd.ufrn.br.lifecycle.LifecycleManager;
 import imd.ufrn.br.monitoring.HeartbeatMonitor;
-import imd.ufrn.br.remoting.*;
+import imd.ufrn.br.registry.RouteRegistry;
+import imd.ufrn.br.remoting.AsyncInvoker;
+import imd.ufrn.br.remoting.Invoker;
 
 import java.io.IOException;
 
-/**
- * The main facade for the middleware platform.
- * This class encapsulates all the bootstrap logic and component wiring,
- * hiding it from the end-user application.
- */
 public class MiddlewarePlatform {
 
     private MiddlewareConfig config;
@@ -30,11 +27,10 @@ public class MiddlewarePlatform {
     private ExtensionManager extensionManager;
     private LifecycleManager lifecycleManager;
     private AsyncInvoker asyncInvoker;
-    private TCPServerRequestHandler tcpHandler;
-    private UDPServerRequestHandler udpHandler;
     private HTTPGateway httpGateway;
     private HeartbeatMonitor heartbeatMonitor;
     private MetricsExporter metricsExporter;
+    private RouteRegistry routeRegistry;
 
     private boolean isRunning = false;
 
@@ -42,11 +38,6 @@ public class MiddlewarePlatform {
         // Constructor is light, all work is in start()
     }
 
-    /**
-     * Starts and initializes all middleware components.
-     * @param args Command-line arguments for configuration overrides.
-     * @throws IOException if any server fails to start.
-     */
     public void start(String[] args) throws IOException {
         if (isRunning) {
             return;
@@ -54,7 +45,6 @@ public class MiddlewarePlatform {
 
         System.out.println("Iniciando plataforma middleware...");
 
-        // 1. Load configuration
         config = new MiddlewareConfig();
         config.overrideFromCommandLine(args);
 
@@ -65,19 +55,17 @@ public class MiddlewarePlatform {
         System.out.println("  Pool Assíncrono: " + config.getAsyncThreadPoolSize() + " threads");
         System.out.println("  Métricas: " + (config.isMetricsEnabled() ? "habilitadas" : "desabilitadas"));
         
-        // 2. Initialize Core Services (Singleton/Managers)
         lookupService = LookupService.getInstance();
         extensionManager = new ExtensionManager();
         lifecycleManager = new LifecycleManager(lookupService);
+        routeRegistry = RouteRegistry.getInstance();
 
-        // Wire them up
         lookupService.setExtensionManager(extensionManager);
         lookupService.setLifecycleManager(lifecycleManager);
 
-        // 3. Initialize Functional Components
         serviceRegistry = new ServiceRegistry(config.getRegistryTtlMs());
-        Invoker invoker = new Invoker(lookupService);
-        asyncInvoker = new AsyncInvoker(lookupService, config.getAsyncThreadPoolSize());
+        Invoker invoker = new Invoker();
+        asyncInvoker = new AsyncInvoker(config.getAsyncThreadPoolSize());
 
         MetricsCollector metricsCollector = null;
         if (config.isMetricsEnabled()) {
@@ -87,13 +75,8 @@ public class MiddlewarePlatform {
             }
         }
 
-        Broker broker = new Broker(invoker, asyncInvoker, extensionManager, metricsCollector);
-        JsonMarshaller marshaller = new JsonMarshaller();
-
-        // 4. Initialize Handlers and Gateways
-        udpHandler = new UDPServerRequestHandler(broker, marshaller, lookupService, config.getUdpThreadPoolSize());
-        tcpHandler = new TCPServerRequestHandler(broker, marshaller, lookupService, config.getTcpThreadPoolSize());
-        httpGateway = new HTTPGateway(serviceRegistry, config.getServerHost(), config.getTcpPort());
+        Broker broker = new Broker(invoker, extensionManager, metricsCollector);
+        httpGateway = new HTTPGateway(routeRegistry, broker);
 
         heartbeatMonitor = new HeartbeatMonitor(
                 config.getHeartbeatIntervalMs(),
@@ -101,23 +84,13 @@ public class MiddlewarePlatform {
                 config.getMaxMissedHeartbeats()
         );
 
-        // 5. Start all services
         serviceRegistry.start();
         lifecycleManager.startAll();
 
-        // Start servers
-        tcpHandler.start(config.getTcpPort());
-        System.out.println("Servidor TCP iniciado com sucesso na porta " + config.getTcpPort());
-        
         httpGateway.start(config.getHttpPort());
-        System.out.println("Gateway HTTP iniciado com sucesso na porta " + config.getHttpPort() + " (para JMeter)");
-        
-        udpHandler.start(config.getUdpPort());
-        System.out.println("Servidor UDP iniciado com sucesso na porta " + config.getUdpPort());
+        System.out.println("Gateway HTTP iniciado com sucesso na porta " + config.getHttpPort());
 
-        // Auto-register internal components for monitoring
-        heartbeatMonitor.registerComponent("TCPServer", config.getServerHost(), config.getTcpPort() + 1000);
-        heartbeatMonitor.registerComponent("UDPServer", config.getServerHost(), config.getUdpPort());
+        // Heartbeat for TCP/UDP servers is disabled as they are no longer the primary entry point.
         heartbeatMonitor.start();
         System.out.println("Monitor de heartbeat iniciado com sucesso.");
 
@@ -126,7 +99,6 @@ public class MiddlewarePlatform {
             System.out.println("Exportador de métricas iniciado na porta " + config.getMetricsExportPort());
         }
 
-        // 6. Register a single shutdown hook for the entire platform
         Runtime.getRuntime().addShutdownHook(new Thread(this::stop));
 
         isRunning = true;
@@ -141,9 +113,6 @@ public class MiddlewarePlatform {
         System.out.println("Pressione Ctrl+C para parar.");
     }
 
-    /**
-     * Gracefully stops all middleware components.
-     */
     public void stop() {
         if (!isRunning) {
             return;
@@ -152,8 +121,6 @@ public class MiddlewarePlatform {
         
         System.out.println("\nEncerrando graciosamente...");
         heartbeatMonitor.stop();
-        tcpHandler.stop();
-        udpHandler.stop();
         asyncInvoker.shutdown();
         lifecycleManager.stopAll();
         serviceRegistry.stop();
@@ -162,12 +129,6 @@ public class MiddlewarePlatform {
         }
     }
 
-    /**
-     * Registers an application-provided service object with the middleware.
-     * This method automatically handles ID creation and service discovery.
-     *
-     * @param serviceInstance The object instance to be registered (must be annotated with @RemoteObject).
-     */
     public void registerRemoteObject(Object serviceInstance) {
         if (!isRunning) {
             throw new IllegalStateException("Middleware platform is not running. Call start() first.");
@@ -176,42 +137,34 @@ public class MiddlewarePlatform {
             throw new IllegalArgumentException("Service instance cannot be null.");
         }
 
-        RemoteObject annotation = serviceInstance.getClass().getAnnotation(RemoteObject.class);
-        if (annotation == null) {
-            throw new IllegalArgumentException("Object " + serviceInstance.getClass().getName() + " is not annotated with @RemoteObject.");
+        Class<?> serviceClass = serviceInstance.getClass();
+        if (!serviceClass.isAnnotationPresent(RequestMapping.class)) {
+            throw new IllegalArgumentException("Object " + serviceClass.getName() + " is not a valid service. It must be annotated with @RequestMapping.");
         }
 
-        String serviceName = annotation.name().isEmpty() ? serviceInstance.getClass().getSimpleName() : annotation.name();
+        routeRegistry.register(serviceInstance);
+
+        String serviceName = serviceClass.getSimpleName();
         ObjectId objectId = new ObjectId(serviceName);
 
         try {
-            // Register with local lookup
             lookupService.registerObject(objectId, serviceInstance);
-            
-            // Automatically register with service discovery
+
+            // Service registration for TCP is now legacy, but we can keep it for potential compatibility.
             serviceRegistry.register(objectId, config.getServerHost(), config.getTcpPort());
-            System.out.println("Serviço '" + serviceName + "' registrado com sucesso.");
-        
+            System.out.println("Serviço '" + serviceName + "' registrado para chamadas TCP (legacy).");
+
         } catch (Exception e) {
-            System.err.println("Erro ao registrar objeto remoto: " + e.getMessage());
+            System.err.println("Erro ao registrar objeto remoto para TCP: " + e.getMessage());
         }
     }
 
-    /**
-     * Registers an application-provided extension with the middleware.
-     *
-     * @param extension The extension implementation to register.
-     */
     public void registerExtension(Extension extension) {
          if (extensionManager != null) {
             extensionManager.registerExtension(extension);
          }
     }
 
-    /**
-     * Blocks the calling thread (typically the main thread) to keep the
-     * platform running until it is interrupted.
-     */
     public void awaitShutdown() {
         if (!isRunning) {
             return;

@@ -3,72 +3,85 @@ package imd.ufrn.br.gateway;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import imd.ufrn.br.discovery.ServiceRegistry;
-import imd.ufrn.br.identification.AbsoluteObjectReference;
-import imd.ufrn.br.identification.ObjectId;
+import imd.ufrn.br.annotations.HttpVerb;
+import imd.ufrn.br.broker.Broker;
+import imd.ufrn.br.registry.RouteInfo;
+import imd.ufrn.br.registry.RouteRegistry;
+import imd.ufrn.br.remoting.JsonMarshaller;
+import imd.ufrn.br.remoting.Request;
+import imd.ufrn.br.remoting.Response;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 
 public class HTTPGateway implements HttpHandler {
-    
-    private final ServiceRegistry serviceRegistry;
-    private final String fallbackHost;
-    private final int fallbackPort;
 
-    public HTTPGateway(ServiceRegistry serviceRegistry, String fallbackHost, int fallbackPort) {
-        this.serviceRegistry = serviceRegistry;
-        this.fallbackHost = fallbackHost;
-        this.fallbackPort = fallbackPort;
+    private final RouteRegistry routeRegistry;
+    private final Broker broker;
+    private final JsonMarshaller marshaller;
+
+    public HTTPGateway(RouteRegistry routeRegistry, Broker broker) {
+        this.routeRegistry = routeRegistry;
+        this.broker = broker;
+        this.marshaller = new JsonMarshaller(); // Using a concrete instance for now
     }
 
     public void start(int httpPort) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(httpPort), 0);
-        server.createContext("/invoke", this);
+        // All paths are now dynamic, handled by a single handler at the root.
+        server.createContext("/", this);
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
-        System.out.println("HTTPGateway: Started on port " + httpPort + " with service discovery");
+        System.out.println("HTTPGateway: Started on port " + httpPort + ". All requests will be routed dynamically.");
     }
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
-        String httpMethod = exchange.getRequestMethod();
-
-        System.out.println("HTTPGateway: Received request: " + httpMethod + " " + path);
+        String methodStr = exchange.getRequestMethod();
+        HttpVerb verb;
 
         try {
-            if (!"POST".equalsIgnoreCase(httpMethod)) {
-                sendErrorResponse(exchange, 405, "Method Not Allowed", "Only POST method is supported.");
+            verb = HttpVerb.valueOf(methodStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            sendErrorResponse(exchange, 405, "Method Not Allowed", "HTTP verb '" + methodStr + "' is not supported.");
+            return;
+        }
+
+        System.out.println("HTTPGateway: Received request: " + verb + " " + path);
+
+        try {
+            RouteInfo route = routeRegistry.findRoute(verb, path);
+
+            if (route == null) {
+                sendErrorResponse(exchange, 404, "Not Found", "No route found for " + verb + " " + path);
                 return;
             }
 
-            String[] pathParts = path.split("/");
-            if (pathParts.length != 4 || !"invoke".equals(pathParts[1])) {
-                sendErrorResponse(exchange, 400, "Bad Request", "Invalid path format. Use /invoke/{objectName}/{methodName}");
-                return;
-            }
-
-            String objectName = pathParts[2];
-            String methodName = pathParts[3];
-
+            // The service is local, invoke directly via the Broker
             String requestBody;
             try (InputStream is = exchange.getRequestBody()) {
                 requestBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
             }
 
-            System.out.println("HTTPGateway: Forwarding request to discovered service: " + objectName + "|" + methodName + "|" + requestBody);
+            // Deserialize parameters
+            Object[] params = marshaller.unmarshalParameters(requestBody, route.parameterTypes());
 
-            String tcpRequest = objectName + "|" + methodName + "|" + requestBody;
-            String tcpResponse = forwardToTCPServer(objectName, tcpRequest);
+            // Create a request for the broker
+            Request brokerRequest = new Request(route.instance(), route.method(), params);
 
-            if (tcpResponse != null && tcpResponse.startsWith("ERROR:")) {
-                sendErrorResponse(exchange, 500, "Internal Server Error", tcpResponse);
+            // Invoke and get the response
+            Response brokerResponse = broker.invoke(brokerRequest);
+
+            if (brokerResponse.hasError()) {
+                sendErrorResponse(exchange, 500, "Internal Server Error", brokerResponse.getErrorMessage());
             } else {
-                sendSuccessResponse(exchange, tcpResponse != null ? tcpResponse : "null");
+                String jsonResponse = marshaller.serialize(brokerResponse.getResult());
+                sendSuccessResponse(exchange, jsonResponse);
             }
 
         } catch (Exception e) {
@@ -77,41 +90,6 @@ public class HTTPGateway implements HttpHandler {
             sendErrorResponse(exchange, 500, "Internal Server Error", "Gateway error: " + e.getMessage());
         } finally {
             exchange.close();
-        }
-    }
-
-    private String forwardToTCPServer(String objectName, String request) {
-        // Try service discovery first
-        ObjectId objectId = new ObjectId(objectName);
-        AbsoluteObjectReference reference = serviceRegistry.discover(objectId);
-        
-        String targetHost = fallbackHost;
-        int targetPort = fallbackPort;
-        
-        if (reference != null) {
-            targetHost = reference.getHost();
-            targetPort = reference.getPort();
-            System.out.println("HTTPGateway: Using discovered service at " + targetHost + ":" + targetPort);
-        } else {
-            System.out.println("HTTPGateway: Service not found in registry, using fallback " + targetHost + ":" + targetPort);
-        }
-        
-        try (
-            Socket socket = new Socket(targetHost, targetPort);
-            PrintWriter out = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
-            BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))
-        ) {
-            socket.setSoTimeout(5000);
-            
-            out.println(request);
-            String response = in.readLine();
-            
-            System.out.println("HTTPGateway: Received response from TCP server: " + response);
-            return response;
-            
-        } catch (IOException e) {
-            System.err.println("HTTPGateway: Error forwarding to TCP server - " + e.getMessage());
-            return "ERROR: TCP server communication failed - " + e.getMessage();
         }
     }
 
@@ -125,7 +103,9 @@ public class HTTPGateway implements HttpHandler {
     }
 
     private void sendErrorResponse(HttpExchange exchange, int statusCode, String errorType, String errorMessage) throws IOException {
-        String jsonErrorBody = "{\"error\":\"" + errorType + "\",\"message\":\"" + errorMessage + "\"}";
+        // Sanitize error message for JSON
+        String sanitizedMessage = errorMessage != null ? errorMessage.replace("\"", "'") : "null";
+        String jsonErrorBody = "{\"error\":\"" + errorType + "\",\"message\":\"" + sanitizedMessage + "\"}";
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
         byte[] responseBytes = jsonErrorBody.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(statusCode, responseBytes.length);

@@ -21,7 +21,7 @@ public class JsonMarshaller {
         this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     }
 
-    public String marshal(Object data) throws MarshallingException {
+    public String serialize(Object data) throws MarshallingException {
         if (data == null) {
             return "null";
         }

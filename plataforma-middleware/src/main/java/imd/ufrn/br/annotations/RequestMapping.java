@@ -6,7 +6,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 @Retention(RetentionPolicy.RUNTIME)
-@Target(ElementType.TYPE)
-public @interface RemoteObject {
-    String name() default "";
+@Target(ElementType.TYPE) // <-- Aplica-se a CLASSES
+public @interface RequestMapping {
+    String path() default "/"; // Path base da classe, ex: "/calculator"
 }

@@ -1,8 +1,6 @@
 package imd.ufrn.br.remoting;
 
-import imd.ufrn.br.identification.LookupService;
-import imd.ufrn.br.identification.ObjectId;
-
+import java.lang.reflect.Method;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -15,16 +13,16 @@ public class AsyncInvoker {
     private final Invoker invoker;
     private final ExecutorService executor;
 
-    public AsyncInvoker(LookupService lookupService, int poolSize) {
-        this.invoker = new Invoker(lookupService);
+    public AsyncInvoker(int poolSize) {
+        this.invoker = new Invoker();
         this.executor = Executors.newFixedThreadPool(Math.max(1, poolSize));
         System.out.println("AsyncInvoker: Created with " + poolSize + " threads");
     }
 
-    public CompletableFuture<Object> invokeAsync(ObjectId objectId, String methodName, Object[] args) {
+    public CompletableFuture<Object> invokeAsync(Object targetObject, Method method, Object[] args) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return invoker.invoke(objectId, methodName, args);
+                return invoker.invoke(targetObject, method, args);
             } catch (Throwable t) {
                 throw new RuntimeException(t);
             }

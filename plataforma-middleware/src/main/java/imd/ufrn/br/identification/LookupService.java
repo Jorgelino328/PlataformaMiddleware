@@ -1,6 +1,6 @@
 package imd.ufrn.br.identification;
 
-import imd.ufrn.br.annotations.RemoteObject;
+import imd.ufrn.br.annotations.RequestMapping;
 import imd.ufrn.br.exceptions.ObjectNotFoundException;
 import imd.ufrn.br.extensions.ExtensionManager;
 import imd.ufrn.br.lifecycle.LifecycleManager;
@@ -32,9 +32,9 @@ public class LookupService {
             throw new IllegalArgumentException("Object instance cannot be null for registration.");
         }
 
-        if (!objectInstance.getClass().isAnnotationPresent(RemoteObject.class)) {
+        if (!objectInstance.getClass().isAnnotationPresent(RequestMapping.class)) {
             throw new IllegalArgumentException("Object of type " + objectInstance.getClass().getName() +
-                    " is not annotated with @RemoteObject and cannot be registered.");
+                    " is not annotated with @RequestMapping and cannot be registered.");
         }
 
         remoteObjectsRegistry.put(id, objectInstance);

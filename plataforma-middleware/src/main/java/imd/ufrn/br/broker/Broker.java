@@ -1,71 +1,53 @@
 package imd.ufrn.br.broker;
 
-import imd.ufrn.br.identification.ObjectId;
+import imd.ufrn.br.remoting.Request;
+import imd.ufrn.br.remoting.Response;
 import imd.ufrn.br.remoting.Invoker;
-import imd.ufrn.br.remoting.AsyncInvoker;
 import imd.ufrn.br.extensions.ExtensionManager;
 import imd.ufrn.br.infra.MetricsCollector;
-
-import java.util.concurrent.CompletableFuture;
 
 public class Broker {
 
     private final Invoker invoker;
-    private final AsyncInvoker asyncInvoker;
     private final ExtensionManager extensionManager;
     private final MetricsCollector metricsCollector;
 
-    public Broker(Invoker invoker) {
+    public Broker(Invoker invoker, ExtensionManager extensionManager, MetricsCollector metricsCollector) {
         if (invoker == null) {
             throw new IllegalArgumentException("Invoker cannot be null.");
         }
         this.invoker = invoker;
-        this.asyncInvoker = null;
-        this.extensionManager = null;
-        this.metricsCollector = null;
-    }
-
-    public Broker(Invoker invoker, AsyncInvoker asyncInvoker, ExtensionManager extensionManager) {
-        if (invoker == null) {
-            throw new IllegalArgumentException("Invoker cannot be null.");
-        }
-        this.invoker = invoker;
-        this.asyncInvoker = asyncInvoker;
-        this.extensionManager = extensionManager;
-        this.metricsCollector = null;
-    }
-
-    public Broker(Invoker invoker, AsyncInvoker asyncInvoker, ExtensionManager extensionManager, MetricsCollector metricsCollector) {
-        if (invoker == null) {
-            throw new IllegalArgumentException("Invoker cannot be null.");
-        }
-        this.invoker = invoker;
-        this.asyncInvoker = asyncInvoker;
         this.extensionManager = extensionManager;
         this.metricsCollector = metricsCollector;
     }
 
-    public Object processRequest(ObjectId objectId, String methodName, Object[] params) throws Throwable {
-        System.out.println("Broker: Processing request for ObjectId: " + (objectId != null ? objectId.getId() : "null") +
-                ", Method: " + methodName);
+    public Response invoke(Request request) {
+        String serviceName = request.instance().getClass().getSimpleName();
+        String methodName = request.method().getName();
+
+        System.out.println("Broker: Processing direct request for " + serviceName + "." + methodName);
 
         if (extensionManager != null) {
-            try { extensionManager.notifyInvoke(objectId.getId(), methodName); } catch (Exception ex) { }
+            try {
+                extensionManager.notifyInvoke(serviceName, methodName);
+            } catch (Exception ignored) {
+            }
         }
 
         long start = System.currentTimeMillis();
         try {
-            if (asyncInvoker != null) {
-                CompletableFuture<Object> future = asyncInvoker.invokeAsync(objectId, methodName, params);
-                Object res = future.get();
-                return res;
-            }
-
-            return invoker.invoke(objectId, methodName, params);
+            // Direct invocation, no need for async logic here as HTTP is request-response
+            Object result = invoker.invoke(request.instance(), request.method(), request.params());
+            return new Response(result, null);
+        } catch (Throwable e) {
+            return new Response(null, new Exception(e));
         } finally {
             long latency = System.currentTimeMillis() - start;
             if (metricsCollector != null) {
-                try { metricsCollector.record(objectId.getId(), methodName, latency); } catch (Exception ex) { }
+                try {
+                    metricsCollector.record(serviceName, methodName, latency);
+                } catch (Exception ignored) {
+                }
             }
         }
     }
