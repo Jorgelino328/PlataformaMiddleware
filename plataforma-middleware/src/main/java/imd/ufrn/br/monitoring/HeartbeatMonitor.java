@@ -39,6 +39,9 @@ public class HeartbeatMonitor implements Lifecycle {
     }
     
     public void setEndpoint(String baseUrl, int port) {
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            baseUrl = "http://" + baseUrl;
+        }
         this.baseUrl = baseUrl;
         this.port = port;
     }
