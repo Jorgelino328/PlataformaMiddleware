@@ -1,16 +1,19 @@
 package imd.ufrn.br;
 
+import imd.ufrn.br.annotations.RequestMapping;
 import imd.ufrn.br.broker.Broker;
 import imd.ufrn.br.config.MiddlewareConfig;
 import imd.ufrn.br.extensions.Extension;
 import imd.ufrn.br.extensions.ExtensionManager;
 import imd.ufrn.br.gateway.HTTPGateway;
+import imd.ufrn.br.identification.LookupService;
+import imd.ufrn.br.identification.ObjectId;
 import imd.ufrn.br.infra.MetricsCollector;
 import imd.ufrn.br.infra.MetricsExporter;
+import imd.ufrn.br.lifecycle.LifecycleManager;
+import imd.ufrn.br.monitoring.HeartbeatMonitor;
 import imd.ufrn.br.registry.RouteRegistry;
 import imd.ufrn.br.remoting.Invoker;
-import imd.ufrn.br.servidor.middleware.management.HeartbeatMonitor;
-import imd.ufrn.br.servidor.middleware.management.LifecycleManager;
 
 import java.io.IOException;
 
@@ -46,8 +49,15 @@ public class MiddlewarePlatform {
 
         extensionManager = new ExtensionManager();
         routeRegistry = RouteRegistry.getInstance();
-        lifecycleManager = new LifecycleManager();
-        heartbeatMonitor = new HeartbeatMonitor();
+        
+        LookupService lookupService = LookupService.getInstance();
+        lookupService.setExtensionManager(extensionManager);
+        
+        lifecycleManager = new LifecycleManager(lookupService);
+        lookupService.setLifecycleManager(lifecycleManager);
+        
+
+        heartbeatMonitor = new HeartbeatMonitor(5000, 2000, 3);
 
 
         Invoker invoker = new Invoker();
@@ -63,14 +73,7 @@ public class MiddlewarePlatform {
         Broker broker = new Broker(invoker, extensionManager, metricsCollector);
         httpGateway = new HTTPGateway(routeRegistry, broker);
 
-        lifecycleManager.registerComponent(httpGateway);
-        if (metricsExporter != null) {
-            lifecycleManager.registerComponent(metricsExporter);
-        }
-        lifecycleManager.registerComponent(heartbeatMonitor);
-
-        lifecycleManager.startAll();
-
+        
         httpGateway.start(config.getHttpPort());
         System.out.println("Gateway HTTP iniciado com sucesso na porta " + config.getHttpPort());
 
@@ -79,7 +82,7 @@ public class MiddlewarePlatform {
             System.out.println("Exportador de métricas iniciado na porta " + config.getMetricsExportPort());
         }
 
-        heartbeatMonitor.startMonitoring();
+        heartbeatMonitor.start();
 
         isRunning = true;
         System.out.println("Plataforma middleware iniciada com sucesso.");
@@ -111,12 +114,34 @@ public class MiddlewarePlatform {
     }
 
     public void registerService(Object serviceInstance) {
-        if (routeRegistry != null) {
-            routeRegistry.register(serviceInstance);
-            heartbeatMonitor.registerService(serviceInstance.getClass().getSimpleName());
-        } else {
+        if (routeRegistry == null) {
             System.err.println("Erro: O registro de rotas não foi inicializado.");
+            return;
         }
+        
+        // Register in RouteRegistry for HTTP routing
+        routeRegistry.register(serviceInstance);
+        
+        // Also register in LookupService for lifecycle management
+        Class<?> serviceClass = serviceInstance.getClass();
+        String serviceName = serviceClass.getSimpleName();
+        
+        // Try to get a better name from @RequestMapping annotation
+        if (serviceClass.isAnnotationPresent(RequestMapping.class)) {
+            RequestMapping mapping = serviceClass.getAnnotation(RequestMapping.class);
+            String path = mapping.path();
+            if (path != null && !path.isEmpty()) {
+                // Remove leading slash and use path as service name
+                serviceName = path.startsWith("/") ? path.substring(1) : path;
+            }
+        }
+        
+        // Register in LookupService (this will trigger LifecycleManager if service implements Lifecycle)
+        LookupService lookupService = LookupService.getInstance();
+        ObjectId objectId = new ObjectId(serviceName);
+        lookupService.registerObject(objectId, serviceInstance);
+        
+        System.out.println("Service '" + serviceName + "' registered in both RouteRegistry and LookupService");
     }
 
     public void registerExtension(Extension extension) {
