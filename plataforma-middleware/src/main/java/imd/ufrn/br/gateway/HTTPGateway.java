@@ -23,6 +23,7 @@ public class HTTPGateway implements HttpHandler {
     private final RouteRegistry routeRegistry;
     private final Broker broker;
     private final JsonMarshaller marshaller;
+    private HttpServer server;
 
     public HTTPGateway(RouteRegistry routeRegistry, Broker broker) {
         this.routeRegistry = routeRegistry;
@@ -31,12 +32,19 @@ public class HTTPGateway implements HttpHandler {
     }
 
     public void start(int httpPort) throws IOException {
-        HttpServer server = HttpServer.create(new InetSocketAddress(httpPort), 0);
+        server = HttpServer.create(new InetSocketAddress(httpPort), 0);
         // All paths are now dynamic, handled by a single handler at the root.
         server.createContext("/", this);
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
         System.out.println("HTTPGateway: Started on port " + httpPort + ". All requests will be routed dynamically.");
+    }
+
+    public void stop() {
+        if (server != null) {
+            server.stop(0);
+            System.out.println("HTTPGateway: Stopped.");
+        }
     }
 
     @Override

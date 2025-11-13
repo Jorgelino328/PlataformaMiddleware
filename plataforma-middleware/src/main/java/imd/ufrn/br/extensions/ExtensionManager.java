@@ -10,7 +10,7 @@ public class ExtensionManager {
 
     private final List<Extension> extensions = new CopyOnWriteArrayList<>();
 
-    public void registerExtension(Extension extension) {
+    public void addExtension(Extension extension) {
         if (extension != null) {
             extensions.add(extension);
             System.out.println("ExtensionManager: Registered extension " + extension.getClass().getName());
