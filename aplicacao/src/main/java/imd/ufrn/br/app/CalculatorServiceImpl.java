@@ -3,32 +3,16 @@ package imd.ufrn.br.app;
 import imd.ufrn.br.annotations.HttpVerb;
 import imd.ufrn.br.annotations.MethodMapping;
 import imd.ufrn.br.annotations.RequestMapping;
-import imd.ufrn.br.lifecycle.Lifecycle;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 
 @RequestMapping(path = "/calculator")
-public class CalculatorServiceImpl implements Lifecycle {
+public class CalculatorServiceImpl {
 
     public CalculatorServiceImpl() {
         System.out.println("[" + LocalDateTime.now() + "] CalculatorServiceImpl instance created.");
-    }
-
-    @Override
-    public void init() {
-        // Initialize resources if needed
-    }
-
-    @Override
-    public void start() {
-        // Service is ready to accept requests
-    }
-
-    @Override
-    public void stop() {
-        // Cleanup resources on shutdown
     }
     
     @MethodMapping(path = "/add", verb = HttpVerb.POST)

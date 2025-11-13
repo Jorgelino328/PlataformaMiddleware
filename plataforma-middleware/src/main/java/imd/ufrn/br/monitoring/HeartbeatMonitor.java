@@ -1,157 +1,208 @@
 package imd.ufrn.br.monitoring;
 
+import imd.ufrn.br.lifecycle.Lifecycle;
+import imd.ufrn.br.registry.RouteRegistry;
+
 import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.SocketTimeoutException;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.*;
+import java.util.concurrent.*;
 
-public class HeartbeatMonitor {
+public class HeartbeatMonitor implements Lifecycle {
     
-    private final Map<String, ComponentInfo> components = new ConcurrentHashMap<>();
-    private final Map<String, Integer> missedHeartbeats = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+    private final long checkIntervalMs;
+    private final long timeoutMs;
+    private final int maxFailures;
+    private final Map<String, ServiceHealth> serviceHealthMap = new ConcurrentHashMap<>();
+    private ScheduledExecutorService scheduler;
+    private volatile boolean running = false;
+    private String baseUrl = "http://localhost";
+    private int port = 8080;
     
-    private final long heartbeatIntervalMs;
-    private final long heartbeatTimeoutMs;
-    private final int maxMissedHeartbeats;
-    
-    private boolean running = false;
-
-    public HeartbeatMonitor(long heartbeatIntervalMs, long heartbeatTimeoutMs, int maxMissedHeartbeats) {
-        this.heartbeatIntervalMs = heartbeatIntervalMs;
-        this.heartbeatTimeoutMs = heartbeatTimeoutMs;
-        this.maxMissedHeartbeats = maxMissedHeartbeats;
-    }
-
-    public static class ComponentInfo {
-        private final String name;
-        private final String host;
-        private final int port;
-        private boolean healthy;
-
-        public ComponentInfo(String name, String host, int port) {
-            this.name = name;
-            this.host = host;
-            this.port = port;
-            this.healthy = true;
+    private static class ServiceHealth {
+        String serviceName;
+        boolean healthy = true;
+        int consecutiveFailures = 0;
+        long lastCheckTime = 0;
+        String lastError = null;
+        
+        ServiceHealth(String serviceName) {
+            this.serviceName = serviceName;
         }
-
-        public String getName() { return name; }
-        public String getHost() { return host; }
-        public int getPort() { return port; }
-        public boolean isHealthy() { return healthy; }
-        public void setHealthy(boolean healthy) { this.healthy = healthy; }
     }
-
-    public void registerComponent(String name, String host, int port) {
-        ComponentInfo component = new ComponentInfo(name, host, port);
-        components.put(name, component);
-        missedHeartbeats.put(name, 0);
-        System.out.println("HeartbeatMonitor: Registered component " + name + " at " + host + ":" + port);
+    
+    public HeartbeatMonitor(long checkIntervalMs, long timeoutMs, int maxFailures) {
+        this.checkIntervalMs = checkIntervalMs;
+        this.timeoutMs = timeoutMs;
+        this.maxFailures = maxFailures;
     }
-
-    public void start() {
+    
+    public void setEndpoint(String baseUrl, int port) {
+        this.baseUrl = baseUrl;
+        this.port = port;
+    }
+    
+    public void registerService(String serviceName, String healthCheckPath) {
+        ServiceHealth health = new ServiceHealth(serviceName);
+        serviceHealthMap.put(serviceName, health);
+    }
+    
+    @Override
+    public void start() throws Exception {
         if (running) {
             return;
         }
         
-        running = true;
-        System.out.println("HeartbeatMonitor: Starting heartbeat monitoring...");
+        scheduler = Executors.newScheduledThreadPool(1, r -> {
+            Thread t = new Thread(r, "HeartbeatMonitor");
+            t.setDaemon(true);
+            return t;
+        });
+        
+        discoverServices();
         
         scheduler.scheduleAtFixedRate(
-            this::checkAllComponents, 
-            heartbeatIntervalMs, 
-            heartbeatIntervalMs, 
+            this::checkAllServices,
+            0,
+            checkIntervalMs,
             TimeUnit.MILLISECONDS
         );
+        
+        running = true;
+        System.out.println("HeartbeatMonitor started");
     }
-
-    public void stop() {
+    
+    @Override
+    public void stop() throws Exception {
         if (!running) {
             return;
         }
         
-        running = false;
-        System.out.println("HeartbeatMonitor: Stopping heartbeat monitoring...");
-        
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private void checkAllComponents() {
-        for (ComponentInfo component : components.values()) {
-            if (!component.isHealthy()) {
-                continue;
-            }
-            
-            boolean isAlive = checkComponentHealth(component);
-            
-            if (!isAlive) {
-                int missed = missedHeartbeats.getOrDefault(component.getName(), 0) + 1;
-                missedHeartbeats.put(component.getName(), missed);
-                
-                if (missed >= maxMissedHeartbeats) {
-                    System.err.println("HeartbeatMonitor: Component " + component.getName() + 
-                                     " is dead after " + missed + " missed heartbeats");
-                    component.setHealthy(false);
-                    missedHeartbeats.remove(component.getName());
-                } else {
-                    System.out.println("HeartbeatMonitor: Component " + component.getName() + 
-                                     " missed heartbeat (" + missed + "/" + maxMissedHeartbeats + ")");
-                }
-            } else {
-                missedHeartbeats.put(component.getName(), 0);
-                if (!component.isHealthy()) {
-                    component.setHealthy(true);
-                    System.out.println("HeartbeatMonitor: Component " + component.getName() + " recovered");
-                }
-            }
-        }
-    }
-
-    private boolean checkComponentHealth(ComponentInfo component) {
-        try (DatagramSocket socket = new DatagramSocket()) {
-            socket.setSoTimeout((int) heartbeatTimeoutMs);
-            
-            String message = "HEARTBEAT";
-            byte[] sendData = message.getBytes();
-            
-            InetAddress address = InetAddress.getByName(component.getHost());
-            DatagramPacket sendPacket = new DatagramPacket(
-                sendData, sendData.length, address, component.getPort()
-            );
-            socket.send(sendPacket);
-            
-            byte[] receiveData = new byte[1024];
-            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
-            
+        if (scheduler != null) {
+            scheduler.shutdown();
             try {
-                socket.receive(receivePacket);
-                String response = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                return "HEARTBEAT_ACK".equals(response);
-            } catch (SocketTimeoutException e) {
-                return false;
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
             }
-        } catch (IOException e) {
-            System.err.println("HeartbeatMonitor: Error checking component health - " + e.getMessage());
-            return false;
+        }
+        
+        running = false;
+    }
+    
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+    
+    private void discoverServices() {
+        RouteRegistry registry = RouteRegistry.getInstance();
+        Set<String> serviceNames = registry.getAllServiceNames();
+        
+        for (String serviceName : serviceNames) {
+            if (!serviceHealthMap.containsKey(serviceName)) {
+                ServiceHealth health = new ServiceHealth(serviceName);
+                serviceHealthMap.put(serviceName, health);
+            }
         }
     }
-
-    public Map<String, ComponentInfo> getComponents() {
-        return components;
+    
+    private void checkAllServices() {
+        if (!running) {
+            return;
+        }
+        
+        discoverServices();
+        
+        for (ServiceHealth health : serviceHealthMap.values()) {
+            checkService(health);
+        }
+    }
+    
+    private void checkService(ServiceHealth health) {
+        health.lastCheckTime = System.currentTimeMillis();
+        
+        try {
+            String healthCheckUrl = baseUrl + ":" + port + "/health/" + health.serviceName;
+            
+            HttpURLConnection connection = null;
+            try {
+                @SuppressWarnings("deprecation")
+                URL url = new URL(healthCheckUrl);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout((int) timeoutMs);
+                connection.setReadTimeout((int) timeoutMs);
+                
+                int responseCode = connection.getResponseCode();
+                
+                if (responseCode == 200) {
+                    if (!health.healthy) {
+                        System.out.println("Service '" + health.serviceName + "' recovered");
+                    }
+                    health.healthy = true;
+                    health.consecutiveFailures = 0;
+                    health.lastError = null;
+                } else {
+                    handleServiceFailure(health, "HTTP " + responseCode);
+                }
+            } catch (IOException e) {
+                handleServiceFailure(health, e.getMessage());
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
+            
+        } catch (Exception e) {
+            handleServiceFailure(health, "Health check error: " + e.getMessage());
+        }
+    }
+    
+    private void handleServiceFailure(ServiceHealth health, String errorMessage) {
+        health.consecutiveFailures++;
+        health.lastError = errorMessage;
+        
+        if (health.consecutiveFailures >= maxFailures && health.healthy) {
+            health.healthy = false;
+            System.err.println("Service '" + health.serviceName + 
+                             "' marked as UNHEALTHY after " + maxFailures + 
+                             " consecutive failures. Last error: " + errorMessage);
+        }
+    }
+    
+    public Map<String, Boolean> getHealthStatus() {
+        Map<String, Boolean> status = new HashMap<>();
+        for (Map.Entry<String, ServiceHealth> entry : serviceHealthMap.entrySet()) {
+            status.put(entry.getKey(), entry.getValue().healthy);
+        }
+        return status;
+    }
+    
+    public String getHealthReport() {
+        StringBuilder report = new StringBuilder();
+        report.append("=== Health Check Report ===\n");
+        report.append("Total services: ").append(serviceHealthMap.size()).append("\n\n");
+        
+        for (ServiceHealth health : serviceHealthMap.values()) {
+            report.append("Service: ").append(health.serviceName).append("\n");
+            report.append("  Status: ").append(health.healthy ? "HEALTHY" : "UNHEALTHY").append("\n");
+            report.append("  Consecutive failures: ").append(health.consecutiveFailures).append("\n");
+            if (health.lastError != null) {
+                report.append("  Last error: ").append(health.lastError).append("\n");
+            }
+            report.append("  Last check: ").append(new Date(health.lastCheckTime)).append("\n\n");
+        }
+        
+        return report.toString();
+    }
+    
+    public boolean isServiceHealthy(String serviceName) {
+        ServiceHealth health = serviceHealthMap.get(serviceName);
+        return health != null && health.healthy;
     }
 }

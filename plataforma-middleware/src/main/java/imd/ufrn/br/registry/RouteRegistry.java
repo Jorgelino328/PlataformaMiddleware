@@ -5,7 +5,9 @@ import imd.ufrn.br.annotations.MethodMapping;
 import imd.ufrn.br.annotations.RequestMapping;
 
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RouteRegistry {
@@ -62,5 +64,27 @@ public class RouteRegistry {
 
     public Map<String, RouteInfo> getRoutes() {
         return routes;
+    }
+    
+    public Set<String> getAllServiceNames() {
+        Set<String> serviceNames = new HashSet<>();
+        for (RouteInfo routeInfo : routes.values()) {
+            Object serviceInstance = routeInfo.instance();
+            if (serviceInstance != null) {
+                Class<?> serviceClass = serviceInstance.getClass();
+                String serviceName = serviceClass.getSimpleName();
+                
+                if (serviceClass.isAnnotationPresent(RequestMapping.class)) {
+                    RequestMapping mapping = serviceClass.getAnnotation(RequestMapping.class);
+                    String path = mapping.path();
+                    if (path != null && !path.isEmpty()) {
+                        serviceName = path.startsWith("/") ? path.substring(1) : path;
+                    }
+                }
+                
+                serviceNames.add(serviceName);
+            }
+        }
+        return serviceNames;
     }
 }

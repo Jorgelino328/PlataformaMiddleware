@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import imd.ufrn.br.annotations.HttpVerb;
 import imd.ufrn.br.broker.Broker;
+import imd.ufrn.br.lifecycle.Lifecycle;
 import imd.ufrn.br.registry.RouteInfo;
 import imd.ufrn.br.registry.RouteRegistry;
 import imd.ufrn.br.remoting.JsonMarshaller;
@@ -18,12 +19,13 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 
-public class HTTPGateway implements HttpHandler {
+public class HTTPGateway implements HttpHandler, Lifecycle {
 
     private final RouteRegistry routeRegistry;
     private final Broker broker;
     private final JsonMarshaller marshaller;
     private HttpServer server;
+    private volatile boolean running = false;
 
     public HTTPGateway(RouteRegistry routeRegistry, Broker broker) {
         this.routeRegistry = routeRegistry;
@@ -32,25 +34,44 @@ public class HTTPGateway implements HttpHandler {
     }
 
     public void start(int httpPort) throws IOException {
+        if (running) {
+            return;
+        }
         server = HttpServer.create(new InetSocketAddress(httpPort), 0);
-        // All paths are now dynamic, handled by a single handler at the root.
         server.createContext("/", this);
         server.setExecutor(Executors.newCachedThreadPool());
         server.start();
-        System.out.println("HTTPGateway: Started on port " + httpPort + ". All requests will be routed dynamically.");
+        running = true;
     }
 
-    public void stop() {
-        if (server != null) {
+    @Override
+    public void start() throws Exception {
+        start(8082);
+    }
+
+    @Override
+    public void stop() throws Exception {
+        if (server != null && running) {
             server.stop(0);
-            System.out.println("HTTPGateway: Stopped.");
+            running = false;
         }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
     }
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
         String path = exchange.getRequestURI().getPath();
         String methodStr = exchange.getRequestMethod();
+        
+        if (path.startsWith("/health")) {
+            handleHealthCheck(exchange, path);
+            return;
+        }
+        
         HttpVerb verb;
 
         try {
@@ -59,8 +80,6 @@ public class HTTPGateway implements HttpHandler {
             sendErrorResponse(exchange, 405, "Method Not Allowed", "HTTP verb '" + methodStr + "' is not supported.");
             return;
         }
-
-        System.out.println("HTTPGateway: Received request: " + verb + " " + path);
 
         try {
             RouteInfo route = routeRegistry.findRoute(verb, path);
@@ -90,8 +109,33 @@ public class HTTPGateway implements HttpHandler {
 
         } catch (Exception e) {
             System.err.println("HTTPGateway: Error processing request - " + e.getMessage());
-            e.printStackTrace();
             sendErrorResponse(exchange, 500, "Internal Server Error", "Gateway error: " + e.getMessage());
+        } finally {
+            exchange.close();
+        }
+    }
+    
+    private void handleHealthCheck(HttpExchange exchange, String path) throws IOException {
+        try {
+            if (path.equals("/health") || path.equals("/health/")) {
+                String response = "{\"status\":\"UP\",\"gateway\":\"HTTPGateway\",\"timestamp\":" + System.currentTimeMillis() + "}";
+                sendSuccessResponse(exchange, response);
+            } else {
+                String[] parts = path.split("/");
+                if (parts.length >= 3) {
+                    String serviceName = parts[2];
+                    boolean serviceExists = routeRegistry.getAllServiceNames().contains(serviceName);
+                    
+                    if (serviceExists) {
+                        String response = "{\"status\":\"UP\",\"service\":\"" + serviceName + "\",\"timestamp\":" + System.currentTimeMillis() + "}";
+                        sendSuccessResponse(exchange, response);
+                    } else {
+                        sendErrorResponse(exchange, 404, "Not Found", "Service '" + serviceName + "' not found");
+                    }
+                } else {
+                    sendErrorResponse(exchange, 400, "Bad Request", "Invalid health check path");
+                }
+            }
         } finally {
             exchange.close();
         }
@@ -107,7 +151,6 @@ public class HTTPGateway implements HttpHandler {
     }
 
     private void sendErrorResponse(HttpExchange exchange, int statusCode, String errorType, String errorMessage) throws IOException {
-        // Sanitize error message for JSON
         String sanitizedMessage = errorMessage != null ? errorMessage.replace("\"", "'") : "null";
         String jsonErrorBody = "{\"error\":\"" + errorType + "\",\"message\":\"" + sanitizedMessage + "\"}";
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");

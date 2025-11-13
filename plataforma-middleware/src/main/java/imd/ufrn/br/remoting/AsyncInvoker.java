@@ -5,9 +5,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Provides asynchronous invocation semantics backed by a configurable thread pool.
- */
 public class AsyncInvoker {
 
     private final Invoker invoker;
@@ -16,7 +13,6 @@ public class AsyncInvoker {
     public AsyncInvoker(int poolSize) {
         this.invoker = new Invoker();
         this.executor = Executors.newFixedThreadPool(Math.max(1, poolSize));
-        System.out.println("AsyncInvoker: Created with " + poolSize + " threads");
     }
 
     public CompletableFuture<Object> invokeAsync(Object targetObject, Method method, Object[] args) {

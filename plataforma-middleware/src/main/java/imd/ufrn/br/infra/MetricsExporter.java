@@ -3,38 +3,54 @@ package imd.ufrn.br.infra;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
+import imd.ufrn.br.lifecycle.Lifecycle;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.Executors;
 
-/**
- * HTTP endpoint for exporting metrics in a simple format.
- */
-public class MetricsExporter implements HttpHandler {
+public class MetricsExporter implements HttpHandler, Lifecycle {
     
     private final MetricsCollector metricsCollector;
     private HttpServer server;
+    private volatile boolean running = false;
+    private int port;
     
     public MetricsExporter(MetricsCollector metricsCollector) {
         this.metricsCollector = metricsCollector;
     }
     
     public void start(int port) throws IOException {
+        if (running) {
+            return;
+        }
+        this.port = port;
         server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/metrics", this);
         server.setExecutor(Executors.newSingleThreadExecutor());
         server.start();
-        System.out.println("MetricsExporter: Started on port " + port);
+        running = true;
     }
     
-    public void stop() {
-        if (server != null) {
+    @Override
+    public void start() throws Exception {
+        start(9090);
+    }
+    
+    @Override
+    public void stop() throws Exception {
+        if (server != null && running) {
             server.stop(0);
-            System.out.println("MetricsExporter: Stopped");
+            running = false;
         }
+    }
+    
+    @Override
+    public boolean isRunning() {
+        return running;
     }
     
     @Override
@@ -49,29 +65,23 @@ public class MetricsExporter implements HttpHandler {
         response.append("# TYPE invocation_count counter\n");
         response.append("# TYPE invocation_latency_avg gauge\n");
         
-        // Note: In a real implementation, we'd store method keys and iterate through them
-        // For this demo, we'll show the concept with some sample methods
-        String[] sampleMethods = {
-        "CalculatorServiceImpl#add",
-        "CalculatorServiceImpl#echo",
-        "CalculatorServiceImpl#status", // O método agora é "status"
-        "CalculatorServiceImpl#process", // O método agora é "process"
-        "CalculatorServiceImpl#greet",   // O método agora é "greet"
-        "CalculatorServiceImpl#sum"      // O método agora é "sum"
-    };
+        Map<String, MetricsCollector.Stats> allStats = metricsCollector.getAllStats();
         
-        for (String methodKey : sampleMethods) {
+        for (Map.Entry<String, MetricsCollector.Stats> entry : allStats.entrySet()) {
+            String methodKey = entry.getKey();
+            MetricsCollector.Stats stats = entry.getValue();
+            
             String[] parts = methodKey.split("#");
             if (parts.length == 2) {
-                long count = metricsCollector.getCount(parts[0], parts[1]);
-                double avgLatency = metricsCollector.getAverageLatency(parts[0], parts[1]);
+                String serviceName = parts[0];
+                String methodName = parts[1];
+                long count = stats.getCount();
+                double avgLatency = stats.getAverageLatency();
                 
-                if (count > 0) {
-                    response.append(String.format("invocation_count{service=\"%s\",method=\"%s\"} %d\n", 
-                                                parts[0], parts[1], count));
-                    response.append(String.format("invocation_latency_avg{service=\"%s\",method=\"%s\"} %.2f\n", 
-                                                parts[0], parts[1], avgLatency));
-                }
+                response.append(String.format("invocation_count{service=\"%s\",method=\"%s\"} %d\n", 
+                                            serviceName, methodName, count));
+                response.append(String.format("invocation_latency_avg{service=\"%s\",method=\"%s\"} %.2f\n", 
+                                            serviceName, methodName, avgLatency));
             }
         }
         

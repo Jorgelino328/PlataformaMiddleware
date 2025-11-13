@@ -9,12 +9,13 @@ public class Main {
         System.out.println("Iniciando aplicação middleware distribuído...");
 
         try {
-            
             MiddlewarePlatform platform = new MiddlewarePlatform();
             platform.start(args); 
 
+            // Register services
             platform.registerService(new CalculatorServiceImpl());
 
+            // Register extensions
             platform.registerExtension(new Extension() {
                 @Override
                 public void onInvoke(String objectId, String methodName) {
@@ -22,19 +23,10 @@ public class Main {
                 }
             });
 
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                try {
-                    System.out.println("Desligando a plataforma...");
-                    platform.stop();
-                    System.out.println("Plataforma desligada.");
-                } catch (Exception e) {
-                    System.err.println("Erro durante o desligamento: " + e.getMessage());
-                }
-            }));
-
             System.out.println("Aplicação iniciada. Pressione Ctrl+C para sair.");
-            // Keep main thread alive
-            Thread.currentThread().join();
+            
+            // Wait for shutdown (shutdown hook is registered in MiddlewarePlatform)
+            platform.awaitShutdown();
 
         } catch (Exception e) {
             System.err.println("Falha ao iniciar aplicação: " + e.getMessage());
