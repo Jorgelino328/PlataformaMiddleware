@@ -17,7 +17,6 @@ public class MetricsExporter implements HttpHandler, Lifecycle {
     private final MetricsCollector metricsCollector;
     private HttpServer server;
     private volatile boolean running = false;
-    private int port;
     
     public MetricsExporter(MetricsCollector metricsCollector) {
         this.metricsCollector = metricsCollector;
@@ -27,7 +26,6 @@ public class MetricsExporter implements HttpHandler, Lifecycle {
         if (running) {
             return;
         }
-        this.port = port;
         server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/metrics", this);
         server.setExecutor(Executors.newSingleThreadExecutor());

@@ -12,10 +12,8 @@ public class Main {
             MiddlewarePlatform platform = new MiddlewarePlatform();
             platform.start(args); 
 
-            // Register services
             platform.registerService(new CalculatorServiceImpl());
 
-            // Register extensions
             platform.registerExtension(new Extension() {
                 @Override
                 public void onInvoke(String objectId, String methodName) {
@@ -25,7 +23,6 @@ public class Main {
 
             System.out.println("Aplicação iniciada. Pressione Ctrl+C para sair.");
             
-            // Wait for shutdown (shutdown hook is registered in MiddlewarePlatform)
             platform.awaitShutdown();
 
         } catch (Exception e) {

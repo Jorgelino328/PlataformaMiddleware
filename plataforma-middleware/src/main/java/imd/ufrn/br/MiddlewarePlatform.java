@@ -91,19 +91,22 @@ public class MiddlewarePlatform {
             lifecycleManager.register((Lifecycle) metricsExporter);
         }
 
-        try {
-            httpGateway.start(config.getHttpPort());
-            System.out.println("Gateway HTTP iniciado na porta " + config.getHttpPort());
+        httpGateway.start(config.getHttpPort());
+        System.out.println("Gateway HTTP iniciado na porta " + config.getHttpPort());
 
-            if (metricsExporter != null) {
+        if (metricsExporter != null) {
+            try {
                 metricsExporter.start(config.getMetricsExportPort());
                 System.out.println("Métricas disponíveis na porta " + config.getMetricsExportPort());
+            } catch (IOException e) {
+                throw new IOException("Failed to start metrics exporter", e);
             }
+        }
 
+        try {
             heartbeatMonitor.start();
-
         } catch (Exception e) {
-            throw new IOException("Failed to start components", e);
+            throw new IOException("Failed to start heartbeat monitor", e);
         }
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

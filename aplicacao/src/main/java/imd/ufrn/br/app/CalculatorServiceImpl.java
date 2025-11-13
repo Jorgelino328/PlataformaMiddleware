@@ -11,19 +11,13 @@ import java.util.List;
 @RequestMapping(path = "/calculator")
 public class CalculatorServiceImpl {
 
-    public CalculatorServiceImpl() {
-        System.out.println("[" + LocalDateTime.now() + "] CalculatorServiceImpl instance created.");
-    }
-    
     @MethodMapping(path = "/add", verb = HttpVerb.POST)
     public int add(int a, int b) {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.add(" + a + ", " + b + ")");
         return a + b;
     }
 
     @MethodMapping(path = "/echo", verb = HttpVerb.POST)
     public String echo(String message) {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.echo(\"" + message + "\")");
         if (message == null) {
             return "Echo: You sent null!";
         }
@@ -32,7 +26,6 @@ public class CalculatorServiceImpl {
 
     @MethodMapping(path = "/process", verb = HttpVerb.POST)
     public ComplexData processData(ComplexData data) {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.processData(" + (data != null ? data.toString() : "null") + ")");
         if (data == null) {
             ComplexData errorData = new ComplexData("Error: Null input received", -1, false);
             return errorData;
@@ -45,13 +38,11 @@ public class CalculatorServiceImpl {
 
     @MethodMapping(path = "/status", verb = HttpVerb.GET)
     public String getStatus() {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.getStatus()");
         return "CalculatorService is UP and running at " + LocalDateTime.now();
     }
 
     @MethodMapping(path = "/greet", verb = HttpVerb.POST)
     public String greetAll(List<String> names) {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.greetAll(" + names + ")");
         if (names == null || names.isEmpty()) {
             return "Hello, an empty list of guests!";
         }
@@ -60,7 +51,6 @@ public class CalculatorServiceImpl {
 
     @MethodMapping(path = "/sum", verb = HttpVerb.POST)
     public int sumArray(int[] numbers) {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.sumArray(" + Arrays.toString(numbers) + ")");
         if (numbers == null) {
             return 0;
         }
@@ -69,7 +59,6 @@ public class CalculatorServiceImpl {
 
     @MethodMapping(path = "/error", verb = HttpVerb.POST)
     public void causeError() {
-        System.out.println("[" + LocalDateTime.now() + "] Executing CalculatorService.causeError() - This will throw an exception.");
         throw new IllegalStateException("Intentional error from CalculatorService!");
     }
 }
